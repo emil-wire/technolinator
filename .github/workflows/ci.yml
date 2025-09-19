@@ -159,45 +159,65 @@ jobs:
               echo "SBOMQS_VERSION=${SBOMQS#v}"
           } >> "$GITHUB_ENV"
 
-      - name: Docker build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: src/main/docker/Dockerfile
-          tags: ${{ env.image_name }}:${{ env.VERSION }}
-          load: true
-          build-args: |
-            CDXGEN_VERSION=${{ env.CDXGEN_VERSION }}
-            CDXGEN_PLUGINS_VERSION=${{ env.CDXGEN_PLUGINS_VERSION }}
-            GRYPE_VERSION=${{ env.GRYPE_VERSION }}
-            SBOMQS_VERSION=${{ env.SBOMQS_VERSION }}
-            NYDUS_VERSION=${{ env.NYDUS_VERSION }}
-            DEPSCAN_VERSION=${{ env.DEPSCAN_VERSION }}
-
-      - name: Container structure test and tagging
+      - name: Install container-structure-test
         run: |
           sudo curl -Lso /usr/local/bin/container-structure-test https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
           sudo chmod a+x /usr/local/bin/container-structure-test
 
-          container-structure-test test --config src/test/docker/structure-test.yaml --image ${{ env.image_name }}:${{ env.VERSION }}
-
-          # tag for tag image build
-          docker tag ${{ env.image_name }}:${{ env.VERSION }} technolinator:regular
-
-      - name: Docker fat image build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: src/main/docker/Dockerfile.fat
-          tags: ${{ env.image_name }}:fat-${{ env.VERSION }}
-          load: true
-          build-args: |
-            SWIFT_VERSION=${{ env.SWIFT_VERSION }}
-
-      - name: Container structure test of fat image
+      - name: Docker builds (parallel)
         run: |
-          container-structure-test test --config src/test/docker/structure-test.yaml --image ${{ env.image_name }}:fat-${{ env.VERSION }}
-          container-structure-test test --config src/test/docker/structure-test.fat.yaml --image ${{ env.image_name }}:fat-${{ env.VERSION }}
+          # Start regular docker build in background
+          docker build \
+            --build-arg CDXGEN_VERSION=${{ env.CDXGEN_VERSION }} \
+            --build-arg CDXGEN_PLUGINS_VERSION=${{ env.CDXGEN_PLUGINS_VERSION }} \
+            --build-arg GRYPE_VERSION=${{ env.GRYPE_VERSION }} \
+            --build-arg SBOMQS_VERSION=${{ env.SBOMQS_VERSION }} \
+            --build-arg NYDUS_VERSION=${{ env.NYDUS_VERSION }} \
+            --build-arg DEPSCAN_VERSION=${{ env.DEPSCAN_VERSION }} \
+            -f src/main/docker/Dockerfile \
+            -t ${{ env.image_name }}:${{ env.VERSION }} . &
+          REGULAR_PID=$!
+
+          # Start fat docker build in background
+          docker build \
+            --build-arg SWIFT_VERSION=${{ env.SWIFT_VERSION }} \
+            -f src/main/docker/Dockerfile.fat \
+            -t ${{ env.image_name }}:fat-${{ env.VERSION }} . &
+          FAT_PID=$!
+
+          # Wait for both builds to complete
+          echo "Waiting for regular build (PID: $REGULAR_PID)..."
+          wait $REGULAR_PID
+          echo "Regular build completed"
+
+          echo "Waiting for fat build (PID: $FAT_PID)..."
+          wait $FAT_PID
+          echo "Fat build completed"
+
+      - name: Test images (parallel)
+        run: |
+          # Test regular image in background
+          (
+            container-structure-test test --config src/test/docker/structure-test.yaml --image ${{ env.image_name }}:${{ env.VERSION }}
+            docker tag ${{ env.image_name }}:${{ env.VERSION }} technolinator:regular
+          ) &
+          REGULAR_TEST_PID=$!
+
+          # Test fat image in background
+          (
+            container-structure-test test --config src/test/docker/structure-test.yaml --image ${{ env.image_name }}:fat-${{ env.VERSION }}
+            container-structure-test test --config src/test/docker/structure-test.fat.yaml --image ${{ env.image_name }}:fat-${{ env.VERSION }}
+          ) &
+          FAT_TEST_PID=$!
+
+          # Wait for both tests to complete
+          echo "Waiting for regular image tests (PID: $REGULAR_TEST_PID)..."
+          wait $REGULAR_TEST_PID
+          echo "Regular image tests completed"
+
+          echo "Waiting for fat image tests (PID: $FAT_TEST_PID)..."
+          wait $FAT_TEST_PID
+          echo "Fat image tests completed"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
