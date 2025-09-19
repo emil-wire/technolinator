@@ -11,6 +11,7 @@ public class ConfigBuilder {
     private Boolean enablePullRequestReport = null;
     private TechnolinatorConfig.ProjectConfig project;
     private TechnolinatorConfig.AnalysisConfig analysis;
+    private TechnolinatorConfig.BranchConfig branches;
     private TechnolinatorConfig.GradleConfig gradle;
     private TechnolinatorConfig.MavenConfig maven;
     private Map<String, String> env;
@@ -36,6 +37,7 @@ public class ConfigBuilder {
             enablePullRequestReport,
             project,
             analysis,
+            branches,
             gradle,
             maven,
             jdk,
@@ -61,6 +63,11 @@ public class ConfigBuilder {
 
     public ConfigBuilder analysis(TechnolinatorConfig.AnalysisConfig analysis) {
         this.analysis = analysis;
+        return this;
+    }
+
+    public ConfigBuilder branches(TechnolinatorConfig.BranchConfig branches) {
+        this.branches = branches;
         return this;
     }
 

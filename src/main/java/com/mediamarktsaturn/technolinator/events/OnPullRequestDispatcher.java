@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.DoubleSupplier;
+import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class OnPullRequestDispatcher extends DispatcherBase {
@@ -72,6 +73,9 @@ public class OnPullRequestDispatcher extends DispatcherBase {
         } else if (ignoreBotPullRequest(prPayload)) {
             Log.infof("Ignored bot pull-request %s of repository %s", prPayload.getNumber(), repoUrl);
             status = MetricStatusRepo.BOT_PR_IGNORED;
+        } else if (!isPullRequestBranchEligibleForAnalysis(prPayload, config)) {
+            Log.infof("Branch %s of pull-request %s in repository %s not eligible for analysis", pushRef, prPayload.getNumber(), repoUrl);
+            status = MetricStatusRepo.NON_DEFAULT_BRANCH;
         } else {
             status = MetricStatusRepo.ELIGIBLE_FOR_ANALYSIS;
             Log.infof("Analyzing pull-request %s of repository %s", prPayload.getNumber(), repoUrl);
@@ -149,6 +153,35 @@ public class OnPullRequestDispatcher extends DispatcherBase {
                     (user.getLogin().toLowerCase(Locale.ROOT).contains("[bot]") ||
                         user.getLogin().toLowerCase(Locale.ROOT).endsWith("-bot"))
                 ));
+    }
+
+    static boolean isPullRequestBranchEligibleForAnalysis(GHEventPayload.PullRequest prPayload, Optional<TechnolinatorConfig> config) {
+        var branchConfig = config.flatMap(c -> Optional.ofNullable(c.branches()));
+        if (branchConfig.isEmpty()) {
+            return true;
+        }
+
+        var includePullRequests = branchConfig.map(TechnolinatorConfig.BranchConfig::includePullRequests).orElse(false);
+        if (!includePullRequests) {
+            return true;
+        }
+
+        var patterns = branchConfig.map(TechnolinatorConfig.BranchConfig::patterns).orElse(List.of());
+        if (patterns.isEmpty()) {
+            return true;
+        }
+
+        String branchName = prPayload.getPullRequest().getHead().getRef();
+
+        return patterns.stream()
+            .anyMatch(pattern -> {
+                try {
+                    return Pattern.matches(pattern, branchName);
+                } catch (Exception e) {
+                    Log.warnf("Invalid regex pattern '%s': %s", pattern, e.getMessage());
+                    return false;
+                }
+            });
     }
 
     record PullRequestResult(MetricStatusAnalysis status) {
