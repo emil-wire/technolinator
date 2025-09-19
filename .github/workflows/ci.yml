@@ -28,7 +28,7 @@ env:
   java_version: '21'
   node_version: '21'
   mvn_parameter: '-B -ntp'
-  image_name: 'ghcr.io/mediamarktsaturn/technolinator'
+  image_name: 'ghcr.io/emil-wire/technolinator'
 
 jobs:
   preparation:
@@ -67,7 +67,7 @@ jobs:
 
   ci:
     name: Application Build
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-latest
     needs: preparation
     if: needs.preparation.outputs.has_changes == 'true'
     steps:
@@ -147,18 +147,6 @@ jobs:
           fail_if_no_tests: false
           create_check: false
 
-      - name: Static code analysis
-        if: github.ref == 'refs/heads/main' && steps.semantic.outputs.new_release_version != null
-        env:
-          SONAR_TOKEN: ${{ secrets.SONARQUBE_ANALYSIS_TOKEN }}
-          SONAR_HOST: ${{ secrets.SONARQUBE_HOST_URL }}
-          PROJECT_KEY: technolinator:main
-        run: |
-          mvn ${{ env.mvn_parameter }} org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.host.url="$SONAR_HOST" \
-            -Dsonar.login="$SONAR_TOKEN" \
-            -Dsonar.projectKey="$PROJECT_KEY" \
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/jacoco-report/jacoco.xml
 
       - name: Sanity versions
         env:
@@ -226,15 +214,6 @@ jobs:
           docker push ${{ env.image_name }}:${{ env.VERSION }}
           docker push ${{ env.image_name }}:fat-${{ env.VERSION }}
 
-      - name: Create and upload container SBOM
-        if: github.ref == 'refs/heads/main'
-        run: |
-          cdxgen -t container \
-              --server-url ${{ secrets.DTRACK_URL }} \
-              --api-key ${{ secrets.DTRACK_APIKEY }} \
-              --project-name technolinator_container \
-              --project-version 1 \
-              "${{ env.image_name }}:${{ env.VERSION }}"
 
       - name: Create Release
         if: github.ref == 'refs/heads/main' && steps.semantic.outputs.new_release_version != null
