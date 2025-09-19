@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+
 import static com.mediamarktsaturn.technolinator.TestUtil.url;
 import static com.mediamarktsaturn.technolinator.events.DispatcherBase.CONFIG_FILE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,5 +140,133 @@ class OnPushDispatcherTest {
                 && got.ref().equals(pushRef)
                 && got.defaultBranch().equals(defaultBranch)
                 && got.config().equals(Optional.ofNullable(config));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_defaultBranch() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/main");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        // When & Then
+        assertTrue(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.empty()));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_nonDefaultBranch_noConfig() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/feature/test");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        // When & Then
+        assertFalse(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.empty()));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_nonDefaultBranch_withMatchingPattern() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/feature/test-branch");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*"), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertTrue(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_nonDefaultBranch_withNonMatchingPattern() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/bugfix/test-branch");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*"), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertFalse(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_multiplePatterns() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/hotfix/urgent-fix");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*", "hotfix/.*", "release/.*"), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertTrue(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_invalidPattern() {
+        // Given
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/feature/test-branch");
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("main");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("[invalid"), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertFalse(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testBranchEligibleForAnalysis_customPatterns() {
+        var pushPayload = mock(org.kohsuke.github.GHEventPayload.Push.class);
+        var repository = mock(org.kohsuke.github.GHRepository.class);
+        Mockito.when(pushPayload.getRepository()).thenReturn(repository);
+        Mockito.when(repository.getDefaultBranch()).thenReturn("dev");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of(
+            "feat/.*", "chore/.*", ".*-cherry-pick", "release/.*"
+        ), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        String[] matchingBranches = {
+            "feat/add-new-feature",
+            "chore/update-dependencies",
+            "chore/bulletproofing-cbox-ccmigration-cherry-pick",
+            "release/q2-2025"
+        };
+
+        for (String branch : matchingBranches) {
+            Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/" + branch);
+            assertTrue(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)),
+                "Branch should be eligible: " + branch);
+        }
+
+        String[] nonMatchingBranches = {
+            "random-branch",
+            "user/personal-work",
+            "dependabot/npm_and_yarn/some-package"
+        };
+
+        for (String branch : nonMatchingBranches) {
+            Mockito.when(pushPayload.getRef()).thenReturn("refs/heads/" + branch);
+            assertFalse(OnPushDispatcher.isBranchEligibleForAnalysis(pushPayload, Optional.of(config)),
+                "Branch should NOT be eligible: " + branch);
+        }
     }
 }

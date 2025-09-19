@@ -1,0 +1,14 @@
+enable: true
+enablePullRequestReport: true
+branches:
+    patterns:
+        - "feat/.*"
+        - "feature/.*"
+        - "bugfix/.*"
+        - "fix/.*"
+        - "chore/.*"
+        - "release/.*"
+        - ".*-cherry-pick"
+    includePullRequests: true
+project:
+    name: test-project

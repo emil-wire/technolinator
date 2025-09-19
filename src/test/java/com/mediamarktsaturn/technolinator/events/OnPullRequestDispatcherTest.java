@@ -1,5 +1,6 @@
 package com.mediamarktsaturn.technolinator.events;
 
+import com.mediamarktsaturn.technolinator.ConfigBuilder;
 import com.mediamarktsaturn.technolinator.git.TechnolinatorConfig;
 import com.mediamarktsaturn.technolinator.handler.AnalysisProcessHandler;
 import io.quarkiverse.githubapp.testing.GitHubAppTest;
@@ -17,7 +18,11 @@ import org.mockito.ArgumentMatcher;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 import static com.mediamarktsaturn.technolinator.TestUtil.url;
 import static com.mediamarktsaturn.technolinator.events.DispatcherBase.CONFIG_FILE;
@@ -100,5 +105,92 @@ class OnPullRequestDispatcherTest {
                 && got.ref().equals(pushRef)
                 && got.defaultBranch().equals(defaultBranch)
                 && got.config().equals(Optional.ofNullable(config));
+    }
+
+    @Test
+    void testPullRequestBranchEligibleForAnalysis_noBranchConfig() {
+        // Given
+        var prPayload = mock(org.kohsuke.github.GHEventPayload.PullRequest.class);
+        var pullRequest = mock(org.kohsuke.github.GHPullRequest.class);
+        var head = mock(org.kohsuke.github.GHCommitPointer.class);
+
+        Mockito.when(prPayload.getPullRequest()).thenReturn(pullRequest);
+        Mockito.when(pullRequest.getHead()).thenReturn(head);
+        Mockito.when(head.getRef()).thenReturn("feature/test-branch");
+
+        // When & Then - should allow all PRs when no branch config
+        assertTrue(OnPullRequestDispatcher.isPullRequestBranchEligibleForAnalysis(prPayload, Optional.empty()));
+    }
+
+    @Test
+    void testPullRequestBranchEligibleForAnalysis_includePullRequestsDisabled() {
+        // Given
+        var prPayload = mock(org.kohsuke.github.GHEventPayload.PullRequest.class);
+        var pullRequest = mock(org.kohsuke.github.GHPullRequest.class);
+        var head = mock(org.kohsuke.github.GHCommitPointer.class);
+
+        Mockito.when(prPayload.getPullRequest()).thenReturn(pullRequest);
+        Mockito.when(pullRequest.getHead()).thenReturn(head);
+        Mockito.when(head.getRef()).thenReturn("feature/test-branch");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*"), false);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then - should allow all PRs when includePullRequests is false
+        assertTrue(OnPullRequestDispatcher.isPullRequestBranchEligibleForAnalysis(prPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testPullRequestBranchEligibleForAnalysis_includePullRequestsEnabled_matchingPattern() {
+        // Given
+        var prPayload = mock(org.kohsuke.github.GHEventPayload.PullRequest.class);
+        var pullRequest = mock(org.kohsuke.github.GHPullRequest.class);
+        var head = mock(org.kohsuke.github.GHCommitPointer.class);
+
+        Mockito.when(prPayload.getPullRequest()).thenReturn(pullRequest);
+        Mockito.when(pullRequest.getHead()).thenReturn(head);
+        Mockito.when(head.getRef()).thenReturn("feature/test-branch");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*"), true);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertTrue(OnPullRequestDispatcher.isPullRequestBranchEligibleForAnalysis(prPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testPullRequestBranchEligibleForAnalysis_includePullRequestsEnabled_nonMatchingPattern() {
+        // Given
+        var prPayload = mock(org.kohsuke.github.GHEventPayload.PullRequest.class);
+        var pullRequest = mock(org.kohsuke.github.GHPullRequest.class);
+        var head = mock(org.kohsuke.github.GHCommitPointer.class);
+
+        Mockito.when(prPayload.getPullRequest()).thenReturn(pullRequest);
+        Mockito.when(pullRequest.getHead()).thenReturn(head);
+        Mockito.when(head.getRef()).thenReturn("bugfix/test-branch");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*"), true);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertFalse(OnPullRequestDispatcher.isPullRequestBranchEligibleForAnalysis(prPayload, Optional.of(config)));
+    }
+
+    @Test
+    void testPullRequestBranchEligibleForAnalysis_includePullRequestsEnabled_multiplePatterns() {
+        // Given
+        var prPayload = mock(org.kohsuke.github.GHEventPayload.PullRequest.class);
+        var pullRequest = mock(org.kohsuke.github.GHPullRequest.class);
+        var head = mock(org.kohsuke.github.GHCommitPointer.class);
+
+        Mockito.when(prPayload.getPullRequest()).thenReturn(pullRequest);
+        Mockito.when(pullRequest.getHead()).thenReturn(head);
+        Mockito.when(head.getRef()).thenReturn("hotfix/urgent-fix");
+
+        var branchConfig = new TechnolinatorConfig.BranchConfig(List.of("feature/.*", "hotfix/.*", "release/.*"), true);
+        var config = ConfigBuilder.create().branches(branchConfig).build();
+
+        // When & Then
+        assertTrue(OnPullRequestDispatcher.isPullRequestBranchEligibleForAnalysis(prPayload, Optional.of(config)));
     }
 }

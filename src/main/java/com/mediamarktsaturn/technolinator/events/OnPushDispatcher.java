@@ -21,6 +21,7 @@ import org.kohsuke.github.GHRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.DoubleSupplier;
+import java.util.regex.Pattern;
 
 /**
  * Handles GitHub push notifications
@@ -57,7 +58,7 @@ public class OnPushDispatcher extends DispatcherBase {
         } else if (!config.map(TechnolinatorConfig::enable).orElse(true)) {
             Log.infof("Disabled for repo %s by repo config", repoUrl);
             status = MetricStatusRepo.DISABLED_BY_REPO;
-        } else if (!isBranchEligibleForAnalysis(pushPayload)) {
+        } else if (!isBranchEligibleForAnalysis(pushPayload, config)) {
             Log.infof("Ref %s of repository %s not eligible for analysis, ignoring.", pushRef, repoUrl);
             status = MetricStatusRepo.NON_DEFAULT_BRANCH;
         } else {
@@ -181,8 +182,35 @@ public class OnPushDispatcher extends DispatcherBase {
         }
     }
 
-    static boolean isBranchEligibleForAnalysis(GHEventPayload.Push pushPayload) {
-        return pushPayload.getRef().equals("refs/heads/" + pushPayload.getRepository().getDefaultBranch());
+    static boolean isBranchEligibleForAnalysis(GHEventPayload.Push pushPayload, Optional<TechnolinatorConfig> config) {
+        var ref = pushPayload.getRef();
+        var repository = pushPayload.getRepository();
+
+        if (ref.equals("refs/heads/" + repository.getDefaultBranch())) {
+            return true;
+        }
+
+        var branchConfig = config.flatMap(c -> Optional.ofNullable(c.branches()));
+        if (branchConfig.isEmpty()) {
+            return false;
+        }
+
+        var patterns = branchConfig.map(TechnolinatorConfig.BranchConfig::patterns).orElse(List.of());
+        if (patterns.isEmpty()) {
+            return false;
+        }
+
+        String branchName = ref.startsWith("refs/heads/") ? ref.substring("refs/heads/".length()) : ref;
+
+        return patterns.stream()
+            .anyMatch(pattern -> {
+                try {
+                    return Pattern.matches(pattern, branchName);
+                } catch (Exception e) {
+                    Log.warnf("Invalid regex pattern '%s': %s", pattern, e.getMessage());
+                    return false;
+                }
+            });
     }
 
     record PushResult(

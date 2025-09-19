@@ -11,6 +11,7 @@ public record TechnolinatorConfig(
     Boolean enablePullRequestReport,
     ProjectConfig project,
     AnalysisConfig analysis,
+    BranchConfig branches,
     GradleConfig gradle,
     MavenConfig maven,
     JdkConfig jdk,
@@ -30,6 +31,12 @@ public record TechnolinatorConfig(
         Boolean evidence,
         Boolean formulation,
         List<String> excludes
+    ) {
+    }
+
+    public record BranchConfig(
+        List<String> patterns,
+        Boolean includePullRequests
     ) {
     }
 
